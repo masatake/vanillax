@@ -1,0 +1,176 @@
+#!/bin/bash
+########################################################################
+#
+# vanillax: unarchiver/decompressor frontend (for srpmnix-vanilla plugin)
+#
+# Copyright (C) 2007-2009, 2012 Masatake YAMATO
+#
+# Author: Masatake YAMATO <yamato@redhat.com>
+#
+# program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+########################################################################
+
+function help
+{
+    echo "Synopsis:"
+    echo "	$(basename $0) INPUT_FILE [OUTPUT_DIR] [EXPANDER/DECOMPRESSOR_OUTPUT]"
+    echo 
+    echo "Parameters: "
+    echo "	OUTPUT_DIR - a directory, which must exist. "
+    echo "	\$(pwd) is used if OUTPUT_DIR is not given."
+    echo
+    echo "Status: "
+    echo "	0  - handled"
+    echo "	1  - unhandled"
+    echo "	1> - something error"
+    echo
+    echo "Output: "
+    echo "	If handled, the name of handler(N) and its exist status(S)"
+    echo "	are printed to stdout like following format:"
+    echo "		N S"
+
+    exit $1
+}
+
+function vanilla
+{
+    local expanded=1
+    local f=$1
+    local o=${2:-$(pwd)}
+    local report_to=${3:-/dev/stdout}
+    local r
+
+    if ! [[ -r "$f" ]]; then
+	return 3
+    fi
+    
+    if ! [[ -f "$f" ]]; then
+	return 4
+    fi
+
+    if ! [[ ${f:0:1} = / ]]; then
+	f="$(pwd)/$f"
+    fi
+
+    if ! [[ -d "$o" ]]; then
+	return 5
+    fi
+
+    if ! cd $o; then
+	return 6
+    fi
+
+    if ! [[ -w . ]]; then
+	return 7
+    fi
+    
+    case "$f" in
+	*.tar.bz2|*.tbz|*.tbz2)
+	    tar jxvfm "$f" 2>&1 > ${report_to}
+	    echo tar $?
+	    ;;
+	*.tar.gz|*.tgz|*.tar.Z)
+	    tar zxvfm "$f" 2>&1 > ${report_to}
+	    echo gunzip+tar $?
+	    ;;
+	    # TODO: Is -X needed to update the file modification time?
+	*.zip)
+	    unzip -o "$f" 2>&1 > ${report_to}
+	    echo unzip $?
+	    ;;
+  	*.jar)
+	    fastjar xf "$f" 2>&1 > ${report_to}
+	    echo jar $?
+	    ;;
+#	    *.shar.gz)
+#               # shar.gz => GZIP=--best gunzip -c srpmix-3.104.0.shar.gz | unshar
+#		;;
+  	*.gz|*.Z)
+	    local suffix
+	    case "$f" in
+		*.gz)
+		    suffix=.gz
+		    ;;
+		*.Z)
+		    suffix=.Z
+		    ;;
+	    esac
+	    # --force is needed to decompress a file specified by a soft link.
+	    cat "$f" | gunzip --force - > $(basename "$f" $suffix) 2>${report_to}
+	    echo gunzip $?
+	    ;;
+  	*.bz2)
+	    # --force is needed to decompress a file specified by a soft link.
+	    bunzip2 --keep --stdout --force "$f" > $(basename "$f" .bz2) 2>${report_to}
+	    echo bz $?
+	    ;;
+	*.tar.lzma)
+	    unlzma --force --stdout "$f" > $(basename "$f" .lzma) && tar xfm $(basename "$f" .lzma)
+	    r=$?
+	    rm $(basename "$f" .lzma)
+	    echo unlzma+tar $r
+	    ;;
+	*.lzma)
+	    # --force is needed to decompress a file specified by a soft link.
+	    unlzma --force --stdout "$f" > $(basename "$f" .lzma)
+	    echo unlzma $?
+	    ;;
+	*.gem)
+	    gem unpack "$f"
+	    echo gem $?
+	    ;;
+	*.tar.xz)
+	    unxz --force --stdout "$f" > $(basename "$f" .xz) && tar xfm $(basename "$f" .xz)
+	    r=$?
+	    rm $(basename "$f" .xz)
+	    echo unxz+tar $r
+	    ;;
+	*.xz)
+	    # --force is needed to decompress a file specified by a soft link.
+	    unxz --force --stdout "$f" > $(basename "$f" .xz)
+	    echo unxz $?
+	    ;;
+	# TODO: cpio, rpm, deb...
+	*)
+	    expanded=
+	    ;;
+    esac
+
+    if [[ -n "${expanded}" ]]; then
+	return 0
+    else
+	return 2
+    fi
+}
+
+function main
+{
+    if [[ $# -lt 1 ]]; then
+	help 1 1>&2
+    fi
+
+    case "$1" in
+	-h|--help)
+	    help 0
+	    ;;
+    esac
+
+    vanilla "$@"
+    return $?
+}
+
+main "$@"
+exit $?
+
